@@ -147,9 +147,9 @@ A complete **Inventory & Order Management System** developed using **Oracle SQL*
 
 ---
 
-# ▶️ Sample Operations
+# Sample Operations
 
-## 📦 Create Order
+## Create Order
 
 ```sql
 BEGIN
