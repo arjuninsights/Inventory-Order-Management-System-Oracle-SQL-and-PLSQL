@@ -379,55 +379,7 @@ GROUP BY product_name;
 
 ----View Tables
 SELECT * FROM products;
-
 SELECT * FROM orders;
-
 SELECT * FROM order_details;
 
 SELECT * FROM inventory_audit;
-
-/*
-Advanced Features Added
-Automated inventory tracking
-Automatic stock deduction using triggers
-Low stock alert system
-Sales reporting using cursors
-Analytical queries using RANK()
-Dynamic SQL using EXECUTE IMMEDIATE
-Inventory audit logging
-Exception handling using RAISE_APPLICATION_ERROR
-Indexed columns for performance optimization
-Transaction handling using COMMIT and ROLLBACK
-Resume Description (ATS Friendly)
-Project: Inventory & Order Management System
-
-Technology: Oracle SQL, PL/SQL
-
-Developed an Inventory & Order Management System using Oracle SQL and PL/SQL.
-Automated inventory tracking and stock deduction using database triggers.
-Implemented PL/SQL Packages, Procedures, Functions, Cursors, and Dynamic SQL for order processing automation.
-Created sales reports using analytical queries and cursor-based reporting modules.
-Designed low stock alert and inventory audit logging mechanisms.
-Used exception handling and RAISE_APPLICATION_ERROR for secure transaction validation.
-Optimized SQL queries and implemented indexes for performance improvement.
-
-
-
-Features
-Inventory Tracking
-Stock Management
-Order Processing
-Automatic Stock Deduction
-Low Stock Alert
-Sales Reports
-Dynamic SQL
-Audit Logging
-PL/SQL Packages
-Procedures & Functions
-Triggers
-Cursors
-Analytical Queries
-Exception Handling
-Bulk Operations
-Query Optimization
-*/
