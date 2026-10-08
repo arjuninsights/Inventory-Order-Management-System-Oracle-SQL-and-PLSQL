@@ -78,6 +78,26 @@ CREATE TABLE order_details (
 **What it does:** The **heart of the order system**. Links orders to products (M:M resolved via junction table). Stores quantity ordered and line-level amount (`price × qty`). Every insert here triggers automatic stock deduction.
 
 ---
+---
+### Order Item Processing Flow
+```sql
+Select product price and available stock
+                  ↓
+Check whether sufficient stock is available
+                  ↓
+Calculate amount = price × quantity
+                  ↓
+Insert order item
+                  ↓
+Stock deduction trigger updates product stock
+                  ↓
+Inventory audit trigger records the stock change
+                  ↓
+Update the order total
+                  ↓
+Commit the changes
+```
+
 
 ### 🔍 Inventory Audit Table — *stock movement history*
 ```sql
@@ -89,7 +109,7 @@ CREATE TABLE inventory_audit (
     action_date DATE
 );
 ```
-**What it does:** Maintains a **tamper-proof ledger of every stock change**. Auto-populated by triggers. Critical for warehouse reconciliation, fraud detection, and supply chain auditing.
+**What it does:** Maintains a **tamper-proof ledger(a secure record-keeping system where stored data cannot be changed, deleted, or falsified once recorded) of every stock change**. Auto-populated by triggers. Critical for warehouse reconciliation, fraud detection, and supply chain auditing.
 
 ---
 
@@ -159,7 +179,6 @@ SELECT product_name, check_stock(product_id) AS available_stock FROM products;
 ---
 
 ## 📦 5. Package Specification
-*The public API of the Inventory System*
 ```sql
 CREATE OR REPLACE PACKAGE inventory_package
 IS
