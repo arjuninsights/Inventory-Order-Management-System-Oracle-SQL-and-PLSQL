@@ -1,158 +1,385 @@
-# Inventory & Order Management System
+# 📦 Inventory & Order Management System — Oracle SQL and PL/SQL Project
 
-A complete **Inventory & Order Management System** developed using **Oracle SQL** and **PL/SQL** to manage inventory tracking, stock management, customer orders, sales reporting, and audit logging.
-
----
-
-# Technologies Used
-
-- Oracle SQL
-- PL/SQL
-- Stored Procedures
-- Functions
-- Packages
-- Triggers
-- Cursors
-- Dynamic SQL
-- Analytical Queries
-- Exception Handling
-- Transaction Control (`COMMIT` & `ROLLBACK`)
+A complete **backend engine for retail/e-commerce inventory & order processing** built entirely on **Oracle Database using SQL and PL/SQL**, automating real-world supply chain operations like order creation, line-item processing, real-time stock deduction, low-stock alerts, sales analytics, and audit compliance — all enforced at the **database layer**.
 
 ---
 
-# Key Features
+## 🔎 Project Overview
 
-## Inventory Management
+This project simulates the **core backend of a real Inventory & Order Management System (IOMS)**.
+Instead of handling stock, orders, and pricing in application code, **all business rules, transactional integrity, and reporting are pushed down to the Oracle database** using PL/SQL — mirroring how enterprise ERP & retail systems (like Oracle NetSuite, SAP MM) are architected.
 
-- Product inventory tracking
-- Stock quantity management
-- Automatic stock deduction
-- Low stock alert system
-- Reorder level monitoring
-
----
-
-## Order Management
-
-- Customer order creation
-- Add multiple order items
-- Automatic order amount calculation
-- Order history management
+**Key ideas implemented:**
+* Normalized retail schema (Master → Order Header → Order Lines → Products)
+* **Trigger chaining**: Order insertion → auto stock deduction → auto audit logging
+* Stock validation before order confirmation
+* Explicit & Implicit cursors for reporting
+* Dynamic SQL for runtime category pricing
+* Analytical SQL (`RANK() OVER`) for top-product insights
+* Indexing for high-volume transaction performance
 
 ---
 
-## Advanced PL/SQL Features
+## 🗄️ 1. Database Schema Design
 
-- PL/SQL Packages for modular programming
-- Stored Procedures and Functions
-- Cursor-based sales reporting
-- Triggers for automatic stock updates
-- Dynamic SQL using `EXECUTE IMMEDIATE`
-- Exception handling using `RAISE_APPLICATION_ERROR`
-
----
-
-## Inventory Validations
-
-- Insufficient stock validation
-- Secure transaction handling
-- Automatic inventory audit logging
-- Data consistency management
+### 📦 Products Table — *item master catalog*
+```sql
+CREATE TABLE products (
+    product_id NUMBER PRIMARY KEY,
+    product_name VARCHAR2(100),
+    category VARCHAR2(50),
+    price NUMBER(10,2),
+    stock_quantity NUMBER,
+    reorder_level NUMBER
+);
+```
+**What it does:** Stores the complete product catalog. `reorder_level` defines the threshold at which the system should flag low stock. `stock_quantity` is the live inventory count that gets automatically updated on every sale.
 
 ---
 
-## Performance Optimization
-
-- Indexed columns for faster query execution
-- Optimized SQL queries
-- Efficient sales reporting
-- Analytical queries using `RANK()`
-
----
-
-## Audit & Monitoring
-
-- Automatic inventory audit trail
-- Tracks stock quantity changes
-- Sales monitoring and reporting
-- Low stock monitoring system
+### 👥 Customers Table — *buyer master data*
+```sql
+CREATE TABLE i_customers (
+    customer_id NUMBER PRIMARY KEY,
+    customer_name VARCHAR2(100),
+    city VARCHAR2(50)
+);
+```
+**What it does:** Maintains customer identity. Prefixed with `i_` to avoid naming conflicts in shared schemas. Acts as the parent table for orders.
 
 ---
 
-# Database Objects
-
-## Tables
-
-- Products
-- Customers
-- Orders
-- Order_Details
-- Inventory_Audit
-
----
-
-## PL/SQL Objects
-
-- Procedures
-- Functions
-- Packages
-- Triggers
-- Cursors
-- Dynamic SQL
-- Indexes
-- Analytical Queries
+### 🧾 Orders Table — *order header / cart summary*
+```sql
+CREATE TABLE orders (
+    order_id NUMBER PRIMARY KEY,
+    customer_id NUMBER,
+    order_date DATE,
+    total_amount NUMBER(12,2),
+    CONSTRAINT fk_customer1 FOREIGN KEY (customer_id) REFERENCES i_customers(customer_id)
+);
+```
+**What it does:** Represents the **order header**. One customer can place many orders (1:M). `total_amount` starts at `0` and increments as items are added. `order_date` captures the purchase timestamp.
 
 ---
 
-#  Modules Included
-
-| Module | Description |
-|--------|-------------|
-| Product Management | Manage product inventory |
-| Customer Management | Handle customer details |
-| Order Processing | Create and process orders |
-| Stock Management | Automatic stock deduction |
-| Sales Reporting | Generate sales reports |
-| Low Stock Alert | Detect low inventory |
-| Audit Logging | Store inventory activity logs |
-| Performance Optimization | Faster query execution using indexes |
-
----
-
-# Advanced Features
-
-- Automated inventory tracking
-- Automatic stock deduction using triggers
-- Low stock alert system
-- Sales reporting using cursors
-- Analytical queries using `RANK()`
-- Dynamic SQL using `EXECUTE IMMEDIATE`
-- Inventory audit logging
-- Exception handling using `RAISE_APPLICATION_ERROR`
-- Indexed columns for performance optimization
-- Transaction handling using `COMMIT` and `ROLLBACK`
+### 📋 Order Details Table — *line items (junction table)*
+```sql
+CREATE TABLE order_details (
+    order_detail_id NUMBER PRIMARY KEY,
+    order_id NUMBER,
+    product_id NUMBER,
+    quantity NUMBER,
+    amount NUMBER(12,2),
+    CONSTRAINT fk_order FOREIGN KEY (order_id) REFERENCES orders(order_id),
+    CONSTRAINT fk_product FOREIGN KEY (product_id) REFERENCES products(product_id)
+);
+```
+**What it does:** The **heart of the order system**. Links orders to products (M:M resolved via junction table). Stores quantity ordered and line-level amount (`price × qty`). Every insert here triggers automatic stock deduction.
 
 ---
 
-# Learning Outcomes
-
-- Real-world PL/SQL project development
-- Inventory and order management system design
-- Writing modular PL/SQL code using packages
-- Dynamic SQL implementation
-- Trigger-based automation
-- Analytical query writing using `RANK()`
-- Advanced exception handling techniques
-- Database transaction management
+### 🔍 Inventory Audit Table — *stock movement history*
+```sql
+CREATE TABLE inventory_audit (
+    audit_id NUMBER GENERATED BY DEFAULT AS IDENTITY,
+    product_id NUMBER,
+    old_stock NUMBER,
+    new_stock NUMBER,
+    action_date DATE
+);
+```
+**What it does:** Maintains a **tamper-proof ledger of every stock change**. Auto-populated by triggers. Critical for warehouse reconciliation, fraud detection, and supply chain auditing.
 
 ---
 
-# Sample Operations
+## 🌱 2. Sample Data
+```sql
+INSERT INTO products VALUES (101,'Laptop','Electronics',55000,20,5);
+INSERT INTO products VALUES (102,'Mouse','Electronics',500,100,20);
+INSERT INTO i_customers VALUES (1,'Arjun Kumar','Patna');
+COMMIT;
+```
+**What it does:** Seeds the system with 2 electronics products and 1 customer so order flow, stock deduction, and reporting can be tested immediately.
 
-## Create Order
+---
 
+## ⚡ 3. Triggers
+
+### 📉 Trigger 1 — Automatic Stock Deduction
+```sql
+CREATE OR REPLACE TRIGGER trg_stock_deduction
+AFTER INSERT ON order_details
+FOR EACH ROW
+BEGIN
+    UPDATE products
+    SET stock_quantity = stock_quantity - :NEW.quantity
+    WHERE product_id = :NEW.product_id;
+END;
+```
+**What it does:** Fires **AFTER** every line-item insertion. Automatically reduces `stock_quantity` in the `products` table by the ordered quantity.
+👉 Ensures **real-time inventory sync** without requiring application code to manually update stock.
+
+---
+
+### 📝 Trigger 2 — Inventory Audit Logging
+```sql
+CREATE OR REPLACE TRIGGER trg_inventory_audit
+AFTER UPDATE OF stock_quantity ON products
+FOR EACH ROW
+BEGIN
+    INSERT INTO inventory_audit (product_id, old_stock, new_stock, action_date)
+    VALUES (:NEW.product_id, :OLD.stock_quantity, :NEW.stock_quantity, SYSDATE);
+END;
+```
+**What it does:** Fires **AFTER** any stock change. Captures `:OLD` vs `:NEW` stock levels and timestamps the movement.
+🔗 **Trigger Chaining in Action:** 
+`INSERT order_details` → `trg_stock_deduction` updates products → `trg_inventory_audit` fires automatically → audit row created. Zero manual intervention.
+
+---
+
+## 🧮 4. Function — Stock Availability Check
+```sql
+CREATE OR REPLACE FUNCTION check_stock (p_product_id NUMBER)
+RETURN NUMBER
+IS
+    v_stock NUMBER;
+BEGIN
+    SELECT stock_quantity INTO v_stock FROM products WHERE product_id = p_product_id;
+    RETURN v_stock;
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN RETURN 0;
+END;
+```
+**What it does:** A **SQL-callable utility** that returns live stock for any product. Handles missing products gracefully by returning `0`. Can be used in queries, UI layers, or validation logic:
+```sql
+SELECT product_name, check_stock(product_id) AS available_stock FROM products;
+```
+
+---
+
+## 📦 5. Package Specification
+*The public API of the Inventory System*
+```sql
+CREATE OR REPLACE PACKAGE inventory_package
+IS
+    PROCEDURE create_order (p_order_id NUMBER, p_customer_id NUMBER);
+    PROCEDURE add_order_item (p_order_detail_id NUMBER, p_order_id NUMBER, p_product_id NUMBER, p_quantity NUMBER);
+    PROCEDURE generate_sales_report;
+    PROCEDURE low_stock_report;
+END inventory_package;
+```
+**What it does:** Exposes a clean, modular interface for order processing and reporting. Hides implementation details for security and maintainability.
+
+---
+
+## 🔧 6. Package Body — Core Order & Inventory Logic
+
+### 🛒 Procedure 1: Create Order (Header)
+```sql
+    PROCEDURE create_order (p_order_id NUMBER, p_customer_id NUMBER)
+    IS
+    BEGIN
+        INSERT INTO orders (order_id, customer_id, order_date, total_amount)
+        VALUES (p_order_id, p_customer_id, SYSDATE, 0);
+        COMMIT;
+        DBMS_OUTPUT.PUT_LINE('Order Created Successfully');
+    EXCEPTION
+        WHEN OTHERS THEN
+            ROLLBACK;
+            DBMS_OUTPUT.PUT_LINE(SQLERRM);
+    END create_order;
+```
+**What it does:** Initializes a new order with `total_amount = 0` and current timestamp. Commits immediately so line items can be added safely. Rolls back cleanly on constraint violations (e.g., invalid customer).
+
+---
+
+### 📦 Procedure 2: Add Order Item (Line Processing + Validation)
+```sql
+    PROCEDURE add_order_item (p_order_detail_id NUMBER, p_order_id NUMBER, p_product_id NUMBER, p_quantity NUMBER)
+    IS
+        v_price NUMBER; v_stock NUMBER; v_amount NUMBER;
+    BEGIN
+        SELECT price, stock_quantity INTO v_price, v_stock FROM products WHERE product_id = p_product_id;
+
+        IF v_stock < p_quantity THEN
+            RAISE_APPLICATION_ERROR(-20001, 'Insufficient Stock');
+        END IF;
+
+        v_amount := v_price * p_quantity;
+
+        INSERT INTO order_details (order_detail_id, order_id, product_id, quantity, amount)
+        VALUES (p_order_detail_id, p_order_id, p_product_id, p_quantity, v_amount);
+
+        UPDATE orders SET total_amount = total_amount + v_amount WHERE order_id = p_order_id;
+        COMMIT;
+        DBMS_OUTPUT.PUT_LINE('Order Item Added');
+    EXCEPTION
+        WHEN OTHERS THEN
+            ROLLBACK;
+            DBMS_OUTPUT.PUT_LINE(SQLERRM);
+    END add_order_item;
+```
+**Step-by-step logic:**
+1. Fetches live `price` & `stock_quantity`.
+2. **Validates availability** → blocks order if `stock < quantity`.
+3. Calculates line amount (`price × qty`).
+4. Inserts into `order_details` → **fires stock deduction trigger**.
+5. Updates parent order's `total_amount`.
+6. `COMMIT` makes order + stock change atomic. `ROLLBACK` on failure prevents orphaned records or negative stock.
+
+---
+
+### 📊 Procedure 3: Sales Report (Explicit Cursor)
+```sql
+    PROCEDURE generate_sales_report
+    IS
+        CURSOR c_sales IS
+        SELECT p.product_name, SUM(od.quantity) total_qty, SUM(od.amount) total_sales
+        FROM products p JOIN order_details od ON p.product_id = od.product_id
+        GROUP BY p.product_name ORDER BY total_sales DESC;
+        v_name products.product_name%TYPE; v_qty NUMBER; v_sales NUMBER;
+    BEGIN
+        OPEN c_sales;
+        LOOP
+            FETCH c_sales INTO v_name, v_qty, v_sales;
+            EXIT WHEN c_sales%NOTFOUND;
+            DBMS_OUTPUT.PUT_LINE('Product : ' || v_name || ' | Quantity Sold : ' || v_qty || ' | Sales : ' || v_sales);
+        END LOOP;
+        CLOSE c_sales;
+    END generate_sales_report;
+```
+**What it does:** Generates a **revenue leaderboard**. Uses an explicit cursor to iterate through aggregated sales data. `%TYPE` anchoring ensures resilience to schema changes. Ordered by highest revenue first.
+
+---
+
+### ⚠️ Procedure 4: Low Stock Report (Implicit Cursor)
+```sql
+    PROCEDURE low_stock_report
+    IS
+    BEGIN
+        FOR rec IN (
+            SELECT product_name, stock_quantity, reorder_level
+            FROM products WHERE stock_quantity <= reorder_level
+        ) LOOP
+            DBMS_OUTPUT.PUT_LINE('Low Stock Alert -> ' || rec.product_name || ' | Stock : ' || rec.stock_quantity);
+        END LOOP;
+    END low_stock_report;
+```
+**What it does:** Scans for items at or below `reorder_level` and prints restock alerts. Uses an **implicit cursor (`FOR rec IN`)** — Oracle handles OPEN/FETCH/CLOSE automatically. Cleaner syntax for read-only loops.
+
+---
+
+## 🔄 7. Dynamic SQL & Indexes
+
+### 💡 Dynamic SQL — Runtime Category Price Update
+```sql
+DECLARE
+    v_sql VARCHAR2(200);
+BEGIN
+    v_sql := 'UPDATE products SET price = price + 100 WHERE category = ''Electronics''';
+    EXECUTE IMMEDIATE v_sql;
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('Prices Updated Successfully');
+END;
+```
+**What it does:** Demonstrates **Dynamic SQL** using `EXECUTE IMMEDIATE`. Useful when table names, categories, or discount rules are determined at runtime (e.g., admin dashboard inputs). Escaped quotes `''Electronics''` handle string literals safely.
+
+---
+
+### 🚀 Indexes for Performance
+```sql
+CREATE INDEX idx_product_category ON products(category);
+CREATE INDEX idx_order_customer ON orders(customer_id);
+```
+**What it does:**
+* `idx_product_category` → Speeds up category filters, dynamic pricing, and catalog searches.
+* `idx_order_customer` → Accelerates customer order history lookups (`WHERE customer_id = ?`).
+👉 Converts full table scans into fast index range scans as transaction volume scales.
+
+---
+
+## ▶️ 8. Demo / How to Run
+```sql
+SET SERVEROUTPUT ON;
+```
+
+### View Core Tables
+```sql
+SELECT * FROM products;
+SELECT * FROM orders;
+SELECT * FROM order_details;
+SELECT * FROM inventory_audit;
+```
+
+### 🛒 Create Order → (order_id, customer_id)
 ```sql
 BEGIN
-   inventory_package.create_order(1001,1);
+   inventory_package.create_order(1001, 1);
 END;
 /
+```
+
+### 📦 Add Item → (detail_id, order_id, product_id, quantity)
+```sql
+BEGIN
+    inventory_package.add_order_item(1, 1001, 101, 2);
+END;
+/
+-- Triggers fire automatically: stock reduces, audit logs created
+```
+
+### 📈 Generate Sales Report
+```sql
+BEGIN
+    inventory_package.generate_sales_report;
+END;
+/
+```
+
+### ⚠️ Low Stock Alert
+```sql
+BEGIN
+    inventory_package.low_stock_report;
+END;
+/
+```
+
+### 🏆 Top Product Revenue (Analytical SQL)
+```sql
+SELECT product_name,
+       SUM(amount) total_sales,
+       RANK() OVER (ORDER BY SUM(amount) DESC) sales_rank
+FROM products p
+JOIN order_details od ON p.product_id = od.product_id
+GROUP BY product_name;
+```
+---
+
+## 🧰 Tech Stack
+| Layer | Technology |
+| :--- | :--- |
+| **Database** | Oracle Database 19c |
+| **Language** | PL/SQL + Advanced SQL |
+| **Tools** | Oracle SQL Developer / SQL*Plus |
+| **Output** | `DBMS_OUTPUT` Package |
+
+### PL/SQL & SQL Concepts Used
+`DDL/DML` · `PK/FK Constraints` · `Row-Level Triggers` · `Trigger Chaining` · `:OLD/:NEW` · `Functions` · `Packages (Spec+Body)` · `Explicit & Implicit Cursors` · `%TYPE` · `Transaction Control (COMMIT/ROLLBACK)` · `RAISE_APPLICATION_ERROR` · `Dynamic SQL (EXECUTE IMMEDIATE)` · `Analytical Functions (RANK OVER)` · `Indexes` · `Exception Handling`
+
+---
+
+## 🎯 What This Project Does
+This **Inventory & Order Management System** replicates the backend of a real retail/ERP platform:
+* ✅ **Order Lifecycle Management** — Creates order headers, adds line items, and auto-calculates totals.
+* ✅ **Real-Time Inventory Sync** — Trigger-driven stock deduction ensures warehouse data is always accurate.
+* ✅ **Automated Audit Trail** — Every stock movement is logged with old/new values for compliance & reconciliation.
+* ✅ **Business Validation** — Blocks orders if `requested_qty > available_stock`, preventing overselling.
+* ✅ **Sales Analytics** — Cursor-based revenue reporting & window-function product ranking for BI insights.
+* ✅ **Smart Reorder Alerts** — Implicit cursor scans for items at/below reorder threshold.
+* ✅ **Dynamic Pricing** — Runtime category updates using `EXECUTE IMMEDIATE` for flexible promo management.
+* ✅ **Performance Ready** — Strategic indexes on foreign keys & category columns ensure scalability under high transaction load.
+
+**Why it matters:** It proves you can build a **complete, ACID-compliant order & inventory engine inside the database**, eliminating race conditions, ensuring data integrity, and offloading heavy business logic from the application tier — exactly how modern e-commerce & ERP backends operate.
+
+---
